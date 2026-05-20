@@ -17,6 +17,7 @@ import unittest
 from unittest import mock
 
 from clusterfuzz._internal.k8s import service as k8s_service
+from clusterfuzz._internal.remote_task import remote_task_adapters
 from clusterfuzz._internal.remote_task import remote_task_gate
 from clusterfuzz._internal.remote_task import remote_task_types
 from clusterfuzz._internal.tests.test_libs import test_utils
@@ -46,6 +47,34 @@ class RemoteTaskGateTest(unittest.TestCase):
                                 '_load_gke_credentials')
     self.addCleanup(patcher.stop)
     patcher.start()
+
+    # Patch RemoteTaskAdapters to enable feature flags in tests.
+    self.patcher = mock.patch.dict(
+        remote_task_adapters.RemoteTaskAdapters._member_map_, {  # pylint: disable=protected-access
+            'KUBERNETES':
+                mock.Mock(
+                    id='kubernetes',
+                    service=remote_task_adapters.RemoteTaskAdapters.KUBERNETES.
+                    service,
+                    feature_flag=mock.Mock(enabled=True),
+                    default_weight=0.0),
+            'GCP_BATCH':
+                mock.Mock(
+                    id='gcp_batch',
+                    service=remote_task_adapters.RemoteTaskAdapters.GCP_BATCH.
+                    service,
+                    feature_flag=mock.Mock(enabled=True),
+                    default_weight=1.0),
+            'SWARMING':
+                mock.Mock(
+                    id='swarming',
+                    service=remote_task_adapters.RemoteTaskAdapters.SWARMING.
+                    service,
+                    feature_flag=mock.Mock(enabled=True),
+                    default_weight=0.0),
+        })
+    self.patcher.start()
+    self.addCleanup(self.patcher.stop)
 
     self.gate = remote_task_gate.RemoteTaskGate()
 
