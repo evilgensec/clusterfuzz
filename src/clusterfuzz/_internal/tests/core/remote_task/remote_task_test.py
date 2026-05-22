@@ -16,6 +16,7 @@
 import unittest
 from unittest import mock
 
+from clusterfuzz._internal.datastore import data_types
 from clusterfuzz._internal.k8s import service as k8s_service
 from clusterfuzz._internal.remote_task import remote_task_adapters
 from clusterfuzz._internal.remote_task import remote_task_gate
@@ -48,33 +49,16 @@ class RemoteTaskGateTest(unittest.TestCase):
     self.addCleanup(patcher.stop)
     patcher.start()
 
-    # Patch RemoteTaskAdapters to enable feature flags in tests.
-    self.patcher = mock.patch.dict(
-        remote_task_adapters.RemoteTaskAdapters._member_map_, {  # pylint: disable=protected-access
-            'KUBERNETES':
-                mock.Mock(
-                    id='kubernetes',
-                    service=remote_task_adapters.RemoteTaskAdapters.KUBERNETES.
-                    service,
-                    feature_flag=mock.Mock(enabled=True),
-                    default_weight=0.0),
-            'GCP_BATCH':
-                mock.Mock(
-                    id='gcp_batch',
-                    service=remote_task_adapters.RemoteTaskAdapters.GCP_BATCH.
-                    service,
-                    feature_flag=mock.Mock(enabled=True),
-                    default_weight=1.0),
-            'SWARMING':
-                mock.Mock(
-                    id='swarming',
-                    service=remote_task_adapters.RemoteTaskAdapters.SWARMING.
-                    service,
-                    feature_flag=mock.Mock(enabled=True),
-                    default_weight=0.0),
-        })
-    self.patcher.start()
-    self.addCleanup(self.patcher.stop)
+    data_types.FeatureFlag(
+        id=remote_task_adapters.RemoteTaskAdapters.KUBERNETES.feature_flag.
+        value,
+        enabled=True).put()
+    data_types.FeatureFlag(
+        id=remote_task_adapters.RemoteTaskAdapters.GCP_BATCH.feature_flag.value,
+        enabled=True).put()
+    data_types.FeatureFlag(
+        id=remote_task_adapters.RemoteTaskAdapters.SWARMING.feature_flag.value,
+        enabled=True).put()
 
     self.gate = remote_task_gate.RemoteTaskGate()
 
@@ -127,3 +111,17 @@ class RemoteTaskGateTest(unittest.TestCase):
     self.gate.create_utask_main_jobs([task])
 
     self.assertTrue(mock_k8s_create.called)
+
+  def test_service_map_filtering(self):
+    """Test that RemoteTaskGate only constructs services for enabled flags."""
+    # pylint: disable=protected-access
+    data_types.FeatureFlag(
+        id=remote_task_adapters.RemoteTaskAdapters.SWARMING.feature_flag.value,
+        enabled=False).put()
+
+    # Create a new gate instance to trigger __init__ again.
+    gate = remote_task_gate.RemoteTaskGate()
+
+    self.assertNotIn('swarming', gate._service_map)
+    self.assertIn('kubernetes', gate._service_map)
+    self.assertIn('gcp_batch', gate._service_map)
